@@ -1597,6 +1597,11 @@ class MdbExomol(DatabaseManager):
                     if self.engine != "vaex"
                     else df["m"].map(n_Texp_dict).values
                 )
+                
+                # Fill missing values with defaults (prevent NaNs that cause ValueError in broadening)
+                if self.engine != "vaex":
+                    self.alpha_ref[np.isnan(self.alpha_ref)] = self.alpha_ref_def
+                    self.n_Texp[np.isnan(self.n_Texp)] = self.n_Texp_def
                 ## for pandas but returns DataFrame
                 # bdat.set_index("jlower", inplace=True)
                 # self.alpha_ref = df["m"].map(bdat["alpha_ref"])
