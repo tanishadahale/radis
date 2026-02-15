@@ -2337,9 +2337,9 @@ class SpecDatabase(SpecList):
         # case, use s_left.take(var)   with 'var' given in parameters of interpolate()
         # Or tell user to generate a subdatabase with only one spectral array
 
-        s_interp.conditions[
-            "interpolated_from"
-        ] = f"{spectra[index]}, {spectra[index+1]}"
+        s_interp.conditions["interpolated_from"] = (
+            f"{spectra[index]}, {spectra[index+1]}"
+        )
 
         return s_interp
 
@@ -2499,8 +2499,8 @@ class SpecDatabase(SpecList):
             else:
                 warn(
                     f"Too many varying conditions ({len(varying_cols)}: {varying_cols}) "
-                    + "to plot residuals. Try to restrain the search using `conditions` "
-                    + "or `**kwconditions`."
+                    + "to plot residuals. At most 1 or 2 conditions can vary. "
+                    + "Try to restrain the search using `conditions` or `**kwconditions`."
                 )
 
         return spectra[i].copy()  # dont forget to copy the Spectrum we return
