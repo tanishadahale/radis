@@ -549,14 +549,14 @@ def save_to_hdf(
     verbose=True,
     engine="pytables",
 ):
-    """Save energy levels or lines to HDF5 file. Add metadata and version.
+    """Save energy levels or lines to cache file (HDF5 or Feather). Add metadata and version.
 
      Parameters
      ----------
      df: a pandas/vaex DataFrame
          data will be stored in this key.
      fname: str
-         ``.h5`` file where to store.
+         ``.h5``, ``.hdf5``, or ``.feather`` file where to store.
      metadata: dict
           dictionary of values that were used to generate the DataFrame. Metadata
           will be asked again on file load to ensure it hasnt changed. ``None``
@@ -575,23 +575,32 @@ def save_to_hdf(
      verbose: bool
          If >=2, also warns if non numeric values are present (it would make
          calculations slower)
-    engine: ``'h5py'``, ``'pytables'``, ``'vaex'``, ``'pytables-fixed'``
-        which HDF5 library to use. Note: ``'vaex'``
+    engine: ``'h5py'``, ``'pytables'``, ``'vaex'``, ``'pytables-fixed'``, ``'feather'``
+        which library to use. Note: ``'vaex'``
         uses ``'h5py'`` compatible HDF5. Default ``pytables``
 
      Notes
      -----
      ``None`` values are not stored
     """
-    # Check file
-    assert str(fname).endswith(".h5") or str(fname).endswith(".hdf5")
+    # Check file extension
+    fname_str = str(fname)
+    assert (
+        fname_str.endswith(".h5")
+        or fname_str.endswith(".hdf5")
+        or fname_str.endswith(".feather")
+    ), f"Expected .h5, .hdf5, or .feather file, got: {fname_str}"
     assert "version" not in metadata
     # ... 'object' columns slow everything down (not fixed format strings!)
     if verbose >= 2:
         _warn_if_object_columns(df, fname)
 
     # Update metadata format
-    metadata = _h5_compatible(metadata)
+    # _h5_compatible creates a new dict (avoids mutating caller's dict)
+    if engine != "feather":
+        metadata = _h5_compatible(metadata)
+    else:
+        metadata = dict(metadata)  # copy to avoid mutating caller's dict
 
     # Overwrite file
     if exists(fname) and not overwrite:

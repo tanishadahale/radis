@@ -16,6 +16,11 @@ from tables.exceptions import NoSuchNodeError
 from ..misc.utils import NotInstalled, not_installed_vaex_args
 
 try:
+    import pyarrow.feather as pf
+except ImportError:
+    pf = None
+
+try:
     import vaex
 except ImportError:
     vaex = NotInstalled(*not_installed_vaex_args)
@@ -66,6 +71,67 @@ def update_pytables_to_vaex(fname, remove_initial=False, verbose=True, key="df")
             print(f"Deleting {fname}")
 
     return fname_vaex
+
+
+def update_hdf5_to_feather(fname, remove_initial=False, verbose=True, key="df"):
+    """Convert a HDF5 cache file (PyTables or Vaex) to Feather format,
+    preserving metadata.
+
+    Parameters
+    ----------
+    fname: str
+        path to the ``.h5`` or ``.hdf5`` file
+    remove_initial: bool
+        if True, delete the original HDF5 file after conversion
+    verbose: bool
+    key: str
+        HDF5 group key to read from
+
+    Returns
+    -------
+    fname_feather: str
+        path to the new ``.feather`` file
+    """
+    if pf is None:
+        raise ImportError(
+            "pyarrow is required to convert to feather. Install with: pip install pyarrow"
+        )
+
+    # Determine output filename
+    if fname.endswith(".h5"):
+        fname_feather = fname.replace(".h5", ".feather")
+    elif fname.endswith(".hdf5"):
+        fname_feather = fname.replace(".hdf5", ".feather")
+    else:
+        fname_feather = fname + ".feather"
+
+    if verbose:
+        print(f"Auto-updating {fname} to Feather format {fname_feather}")
+
+    # Guess source engine and read metadata + data
+    source_engine = DataFileManager.guess_engine(fname, verbose=False)
+    source_manager = DataFileManager(engine=source_engine)
+    file_metadata = source_manager.read_metadata(fname, key=key)
+    df = source_manager.read(fname, key=key)
+
+    # Convert vaex DataFrame to pandas if needed
+    if not isinstance(df, pd.DataFrame):
+        df = df.to_pandas_df()
+
+    # Write feather file with metadata
+    feather_manager = DataFileManager(engine="feather")
+    feather_manager.write(fname_feather, df)
+    feather_manager.add_metadata(fname_feather, file_metadata)
+
+    if verbose:
+        print(f"Converted to Feather format {fname_feather}")
+
+    if remove_initial and fname != fname_feather:
+        os.remove(fname)
+        if verbose:
+            print(f"Deleting {fname}")
+
+    return fname_feather
 
 
 class HDF5Manager(object):
@@ -507,7 +573,7 @@ class DataFileManager(object):
         elif self.engine == "feather":
             assert where is None
             fname = expanduser(fname)
-            return pd.read_feather(fname)
+            return pd.read_feather(fname, columns=columns, use_threads=True)
 
         else:
             raise NotImplementedError(self.engine)
@@ -679,6 +745,24 @@ class DataFileManager(object):
                     else:
                         hf[key].attrs.update(_h5_compatible(metadata))
 
+        elif self.engine == "feather":
+            if pf is None:
+                raise ImportError(
+                    "pyarrow is required to write feather metadata. Install with: pip install pyarrow"
+                )
+            fname = expanduser(fname)
+            # Read existing table, add metadata to schema, rewrite
+            table = pf.read_table(fname)
+            # Encode metadata as bytes for Arrow schema
+            encoded_meta = {
+                str(k).encode(): str(v).encode() for k, v in metadata.items()
+            }
+            # Preserve existing schema metadata (e.g. pandas metadata)
+            existing_meta = table.schema.metadata or {}
+            existing_meta.update(encoded_meta)
+            table = table.replace_schema_metadata(existing_meta)
+            pf.write_feather(table, fname)
+
         else:
             raise NotImplementedError(self.engine)
 
@@ -709,7 +793,28 @@ class DataFileManager(object):
                         raise err
 
         elif self.engine == "feather":
-            return {}  # no metadata
+            if pf is None:
+                raise ImportError(
+                    "pyarrow is required to read feather metadata. Install with: pip install pyarrow"
+                )
+            fname = expanduser(fname)
+            table = pf.read_table(fname)
+            raw_meta = table.schema.metadata or {}
+            metadata = {}
+            for k, v in raw_meta.items():
+                if k == b"pandas":
+                    continue  # skip pandas internal metadata
+                decoded_key = k.decode() if isinstance(k, bytes) else k
+                decoded_val = v.decode() if isinstance(v, bytes) else v
+                # Try to convert numeric strings back to numbers
+                try:
+                    if "." in decoded_val:
+                        decoded_val = float(decoded_val)
+                    else:
+                        decoded_val = int(decoded_val)
+                except (ValueError, TypeError):
+                    pass
+                metadata[decoded_key] = decoded_val
 
         elif self.engine == "h5py":
             fname = expanduser(fname)

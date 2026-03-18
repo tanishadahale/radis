@@ -127,6 +127,158 @@ def test_local_hdf5_lines_loading(*args, **kwargs):
     assert hdf2df(path, load_wavenum_max=2500).wav.max() <= 2500
 
 
+@pytest.mark.fast
+def test_feather_io_engine(*args, **kwargs):
+    """Test Feather engine implemented in :py:class:`radis.api.hdf5.DataFileManager`
+
+    Tests write, read, add_metadata, read_metadata, and multithreaded read
+    for the Feather format.
+    """
+
+    import os
+    from os.path import exists
+
+    test_file = "test_feather_cache.feather"
+    if exists(test_file):
+        os.remove(test_file)
+
+    import numpy as np
+    import pandas as pd
+
+    df0 = pd.DataFrame({"a": np.arange(10) ** 2, "b": np.arange(10) ** 3})
+    metadata0 = {"some_metadata": "True", "version": "0.9.35", "wavenum_min": 2300.5}
+
+    # Test feather engine: write
+    manager = DataFileManager(engine="feather")
+    manager.write(test_file, df0)
+
+    # Test feather engine: read (with multithreading)
+    df = manager.read(test_file)
+    assert (df == df0).all().all()
+
+    # Test feather engine: add_metadata + read_metadata
+    manager.add_metadata(test_file, metadata0)
+    metadata_read = manager.read_metadata(test_file)
+
+    # Check metadata round-trip (values are stored as strings then parsed back)
+    assert metadata_read["some_metadata"] == "True"
+    assert metadata_read["version"] == "0.9.35"
+    assert metadata_read["wavenum_min"] == 2300.5
+
+    # Test that data is still intact after metadata was added
+    df = manager.read(test_file)
+    assert (df == df0).all().all()
+
+    # Test guess_engine
+    engine = DataFileManager.guess_engine(test_file, verbose=False)
+    assert engine == "feather"
+
+    # Test cache_file returns .feather suffix
+    import pathlib
+
+    assert manager.cache_file("test.par") == pathlib.Path("test.feather")
+
+    # Cleanup
+    if exists(test_file):
+        os.remove(test_file)
+
+
+@pytest.mark.fast
+def test_feather_cache_save_load(*args, **kwargs):
+    """Test save_to_hdf and load_h5_cache_file with Feather engine."""
+
+    import os
+    from os.path import exists
+
+    import numpy as np
+    import pandas as pd
+
+    from radis.api.cache_files import load_h5_cache_file, save_to_hdf
+
+    test_file = "test_cache.feather"
+    if exists(test_file):
+        os.remove(test_file)
+
+    df0 = pd.DataFrame(
+        {"wav": np.linspace(2300, 2500, 100), "int": np.random.rand(100)}
+    )
+    metadata0 = {"wavenum_min": 2300.0, "wavenum_max": 2500.0}
+
+    # Save with feather engine
+    save_to_hdf(df0, test_file, metadata=metadata0, engine="feather", verbose=False)
+    assert exists(test_file)
+
+    # Load back (use current radis version to avoid future-version error)
+    import radis
+
+    df = load_h5_cache_file(
+        test_file,
+        use_cached=True,
+        valid_if_metadata_is=metadata0,
+        current_version=radis.__version__,
+        last_compatible_version=radis.config["OLDEST_COMPATIBLE_VERSION"],
+        engine="feather",
+        verbose=False,
+    )
+    assert df is not None
+    assert len(df) == 100
+    assert (df["wav"].values == df0["wav"].values).all()
+
+    # Cleanup
+    if exists(test_file):
+        os.remove(test_file)
+
+
+@pytest.mark.fast
+@pytest.mark.skipif(isinstance(vaex, NotInstalled), reason="Vaex not available")
+def test_hdf5_to_feather_migration(*args, **kwargs):
+    """Test update_hdf5_to_feather conversion function."""
+
+    import os
+    from os.path import exists
+
+    import numpy as np
+    import pandas as pd
+
+    from radis.api.hdf5 import update_hdf5_to_feather
+
+    test_h5 = "test_migration.h5"
+    test_feather = "test_migration.feather"
+    for f in [test_h5, test_feather]:
+        if exists(f):
+            os.remove(f)
+
+    df0 = pd.DataFrame({"a": np.arange(10) ** 2, "b": np.arange(10) ** 3})
+    metadata0 = {"some_metadata": "True", "version": "0.9.35"}
+
+    # Create an HDF5 file with metadata
+    manager = DataFileManager(engine="pytables")
+    manager.write(test_h5, df0)
+    manager.add_metadata(test_h5, metadata0)
+
+    # Convert to feather
+    fname_feather = update_hdf5_to_feather(test_h5, verbose=False)
+    assert fname_feather == test_feather
+    assert exists(test_feather)
+
+    # Verify data and metadata preserved
+    feather_manager = DataFileManager(engine="feather")
+    df = feather_manager.read(test_feather)
+    assert (df == df0).all().all()
+
+    metadata_read = feather_manager.read_metadata(test_feather)
+    assert metadata_read["some_metadata"] == "True"
+    assert metadata_read["version"] == "0.9.35"
+
+    # Cleanup
+    for f in [test_h5, test_feather]:
+        if exists(f):
+            os.remove(f)
+
+
 if __name__ == "__main__":
     test_hdf5_io_engines()
     test_local_hdf5_lines_loading()
+    test_feather_io_engine()
+    test_feather_cache_save_load()
+    test_hdf5_to_feather_migration()
