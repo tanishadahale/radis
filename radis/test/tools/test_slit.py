@@ -655,13 +655,8 @@ def test_auto_correct_dispersion(
 
 @pytest.mark.fast
 def test_slit_dispersion_inplace_error():
-    """Test that apply_slit raises a clear error when inplace=True but
-    wavespace changes (e.g. due to slit_dispersion).
-    See https://github.com/radis/radis/issues/440
-
-    Note: since RADIS 0.9.30, remove_boundary no longer truncates arrays
-    (uses nan instead), so wavespace mismatch doesn't occur naturally.
-    We patch convolve_with_slit to simulate the old truncation behavior."""
+    """Regression test for https://github.com/radis/radis/issues/440
+    Ensure a clear error is raised when wavespace changes with inplace=True."""
 
     from unittest.mock import patch
 
@@ -669,7 +664,6 @@ def test_slit_dispersion_inplace_error():
     I = np.ones_like(w)
 
     def mock_convolve(w, I, wslit, Islit, **kwargs):
-        # Simulate old mode='valid' that truncated arrays
         return w[5:-5], I[5:-5]
 
     with patch("radis.tools.slit.convolve_with_slit", mock_convolve):

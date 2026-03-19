@@ -3523,9 +3523,9 @@ class Spectrum(object):
             ):
                 if slit_dispersion is not None:  # Fix #440
                     raise AssertionError(
-                        "You used `slit_dispersion` but this has the effect of modifying "
+                        "You used `slit_dispersion` but this has the effect to modify "
                         "the size of the spectrum array. Wavespace of the new convolved "
-                        "arrays are different and they cannot be stored in the same "
+                        "arrays are different and it cannot be stored in the same "
                         "Spectrum object. You can use Spectrum.apply_slit(inplace=False) "
                         "to return a new spectrum with only the convolved arrays."
                     )
